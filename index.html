@@ -1,50 +1,94 @@
-
-<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>
-<style>
-  body{font-family:sans-serif; background:#f0f2f5; padding:15px; color:#333;}
-  .box{background:white; padding:15px; border-radius:10px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.1);}
-  h3{margin-top:0; color:#007bff; border-bottom:1px solid #eee; padding-bottom:10px;}
-  button{padding:10px 15px; margin:5px 2px; border:none; border-radius:5px; background:#007bff; color:white; cursor:pointer; font-weight:bold;}
-  button.off{background:#dc3545;}
-  button.gray{background:#6c757d;}
-  input, select{padding:8px; border:1px solid #ddd; border-radius:5px; margin:5px 0;}
-  table{width:100%; border-collapse:collapse; margin-top:10px;}
-  td, th{padding:10px; border-bottom:1px solid #eee; text-align:left;}
-</style></head><body>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>Zigbee Dashboard Remote</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body{font-family:sans-serif; background:#f0f2f5; padding:15px; color:#333;}
+        .box{background:white; padding:15px; border-radius:10px; margin-bottom:15px; box-shadow:0 2px 4px rgba(0,0,0,0.1);}
+        h3{margin-top:0; color:#007bff; border-bottom:1px solid #eee; padding-bottom:10px;}
+        button{padding:10px 15px; margin:5px 2px; border:none; border-radius:5px; background:#007bff; color:white; cursor:pointer; font-weight:bold;}
+        button.off{background:#dc3545;}
+        button.gray{background:#6c757d;}
+        input, select{padding:8px; border:1px solid #ddd; border-radius:5px; margin:5px 0;}
+        table{width:100%; border-collapse:collapse; margin-top:10px;}
+        td, th{padding:10px; border-bottom:1px solid #eee; text-align:left;}
+        #status-indicator { font-weight: bold; margin-bottom: 10px; display: block; }
+    </style>
+</head>
+<body>
 
 <div class="box">
-  <h3>Cấu hình Mạng Zigbee</h3>
-  PAN ID (Hex): <input id="pan" value="1234" style="width:80px"> 
-  Kênh: <input id="ch" type="number" value="15" style="width:50px"><br>
-  Bảo mật: <select id="sec"><option value="1">Bật</option><option value="0">Tắt</option></select>
-  Công suất: <input id="pwr" type="number" value="0" style="width:50px"><br>
-  <button onclick="createNet()">Thiết lập mạng mới</button>
-  <button onclick="cmd('reset')" class="gray">Reset Mạng</button>
-  <hr>
-  <button onclick="cmd('open')">Mở mạng (Cho phép Join)</button>
-  <button onclick="cmd('close')" class="off">Đóng mạng</button>
+    <h3>Trạng thái kết nối: <span id="status-indicator" style="color: orange;">Đang kết nối...</span></h3>
+    <p>Điều khiển từ xa qua Adafruit IO</p>
 </div>
 
 <div class="box">
-  <h3>Đặt lịch (Tối đa 10)</h3>
-  ID: <input id="sid" placeholder="0x05E8" style="width:70px"> 
-  Thời gian: <input type="number" id="sh" value="18" style="width:45px"> : <input type="number" id="sm" value="30" style="width:45px">
-  Lệnh: <select id="st"><option value="1">BẬT</option><option value="0">TẮT</option></select>
-  <button onclick="addS()">Thêm</button>
-  <table id="sTable"></table>
+    <h3>Cấu hình Mạng Zigbee</h3>
+    PAN ID (Hex): <input id="pan" value="1234" style="width:80px"> 
+    Kênh: <input id="ch" type="number" value="15" style="width:50px"><br>
+    Bảo mật: <select id="sec"><option value="1">Bật</option><option value="0">Tắt</option></select>
+    Công suất: <input id="pwr" type="number" value="0" style="width:50px"><br>
+    <button onclick="createNet()">Thiết lập mạng mới</button>
+    <button onclick="cmd('reset')" class="gray">Reset Mạng</button>
+    <hr>
+    <button onclick="cmd('open')">Mở mạng (Cho phép Join)</button>
+    <button onclick="cmd('close')" class="off">Đóng mạng</button>
 </div>
 
 <div class="box">
-  <h3>Thiết bị đang hoạt động</h3>
-  <div id="devs"></div>
+    <h3>Đặt lịch (Tối đa 10)</h3>
+    ID: <input id="sid" placeholder="0x05E8" style="width:70px"> 
+    Thời gian: <input type="number" id="sh" value="18" style="width:45px"> : <input type="number" id="sm" value="30" style="width:45px">
+    Lệnh: <select id="st"><option value="1">BẬT</option><option value="0">TẮT</option></select>
+    <button onclick="addS()">Thêm</button>
+    <table id="sTable"></table>
+</div>
+
+<div class="box">
+    <h3>Thiết bị đang hoạt động</h3>
+    <div id="devs"></div>
 </div>
 
 <script>
-const send = (d) => fetch('/cmd',{method:'POST',body:JSON.stringify(d)});
+/* ================= CONFIG MQTT ADADA FRUIT ================= */
+// Thay YOUR_AIO_KEY bằng mã bạn lấy được từ biểu tượng chìa khóa vàng
+const AIO_USERNAME = "hungdt";
+const AIO_KEY = "YOUR_AIO_KEY"; 
+const CMD_TOPIC = AIO_USERNAME + "/feeds/zigbee-cmd";
+const STATUS_TOPIC = AIO_USERNAME + "/feeds/zigbee-status";
+
+const client = mqtt.connect('wss://io.adafruit.com:443/mqtt', {
+    username: AIO_USERNAME,
+    password: AIO_KEY,
+    clientId: 'web_' + Math.random().toString(16).substr(2, 8)
+});
+
+client.on('connect', () => {
+    document.getElementById('status-indicator').innerText = "Đã kết nối";
+    document.getElementById('status-indicator').style.color = "green";
+    client.subscribe(STATUS_TOPIC); // Đăng ký nhận trạng thái từ ESP32 gửi về
+});
+
+client.on('error', () => {
+    document.getElementById('status-indicator').innerText = "Lỗi kết nối";
+    document.getElementById('status-indicator').style.color = "red";
+});
+
+/* ================= LOGIC GIỮ NGUYÊN TỪ BẢN CŨ ================= */
+
+// Gửi dữ liệu qua MQTT thay vì fetch() nội bộ
+const send = (d) => {
+    client.publish(CMD_TOPIC, JSON.stringify(d));
+    console.log("Sent:", d);
+};
+
 const cmd = (c) => send({cmd:c});
 
 function swap16(v){
-  return ((v & 0xFF) << 8) | (v >> 8);
+    return ((v & 0xFF) << 8) | (v >> 8);
 }
 
 function createNet() {
@@ -58,46 +102,58 @@ function createNet() {
 }
 
 function addS(){
-  send({cmd:'schedule',nodeId: ((parseInt(document.getElementById('sid').value,16) & 0xFF) << 8) 
-       | (parseInt(document.getElementById('sid').value,16) >> 8),
-        hour:parseInt(document.getElementById('sh').value),
-        minute:parseInt(document.getElementById('sm').value),
-        state:parseInt(document.getElementById('st').value)});
+    const rawVal = parseInt(document.getElementById('sid').value, 16);
+    send({
+        cmd:'schedule',
+        nodeId: ((rawVal & 0xFF) << 8) | (rawVal >> 8),
+        hour: parseInt(document.getElementById('sh').value),
+        minute: parseInt(document.getElementById('sm').value),
+        state: parseInt(document.getElementById('st').value)
+    });
 }
 
-setInterval(() => {
-  fetch('/status').then(r=>r.json()).then(d=>{
-    if(d.lastEvent == 'device_join' || d.lastEvent == 'led'){
-    let rawId = d.lastNode;
-    let id = ((rawId & 0xFF) << 8) | (rawId >> 8);
-
-    if(!document.getElementById('d'+id)){
-        let div = document.createElement('div'); 
-        div.id = 'd'+id; 
-        div.className='box';
-        div.style.borderLeft = "5px solid #28a745";
-        div.innerHTML = `<b>Thiết bị: 0x${id.toString(16).toUpperCase()}</b><br>
-                         <button onclick="send({cmd:'led',nodeId:${rawId},state:1})">BẬT</button>
-                         <button onclick="send({cmd:'led',nodeId:${rawId},state:0})" class="off">TẮT</button>
-                         <button onclick="send({cmd:'delete',nodeId:${rawId}})" class="gray">Xóa</button>`;
-        document.getElementById('devs').appendChild(div);
+// Lắng nghe dữ liệu phản hồi từ ESP32 (thay cho hàm fetch status cũ)
+client.on('message', (topic, message) => {
+    if (topic === STATUS_TOPIC) {
+        const d = JSON.parse(message.toString());
+        updateUI(d);
     }
-}
+});
+
+function updateUI(d) {
+    // Logic hiển thị thiết bị join
+    if(d.lastEvent == 'device_join' || d.lastEvent == 'led'){
+        let rawId = d.lastNode;
+        let id = ((rawId & 0xFF) << 8) | (rawId >> 8);
+
+        if(!document.getElementById('d'+id)){
+            let div = document.createElement('div'); 
+            div.id = 'd'+id; 
+            div.className='box';
+            div.style.borderLeft = "5px solid #28a745";
+            div.innerHTML = `<b>Thiết bị: 0x${id.toString(16).toUpperCase()}</b><br>
+                             <button onclick="send({cmd:'led',nodeId:${rawId},state:1})">BẬT</button>
+                             <button onclick="send({cmd:'led',nodeId:${rawId},state:0})" class="off">TẮT</button>
+                             <button onclick="send({cmd:'delete',nodeId:${rawId}})" class="gray">Xóa</button>`;
+            document.getElementById('devs').appendChild(div);
+        }
+    }
+    
     if(d.lastEvent == 'delete'){ document.getElementById('d'+d.lastNode)?.remove(); }
     
+    // Logic cập nhật bảng lịch
     let table = document.getElementById('sTable');
     table.innerHTML = '<tr><th>Node</th><th>Giờ</th><th>Lệnh</th><th></th></tr>';
     d.schedules.forEach(s => {
-    let showId = swap16(s.nodeId);
-
-    table.innerHTML += `<tr>
-        <td>0x${showId.toString(16).toUpperCase().padStart(4,'0')}</td>
-        <td>${s.hour}:${s.minute}</td>
-        <td>${s.state?'BẬT':'TẮT'}</td>
-        <td><button onclick="send({cmd:'remove_schedule',index:${s.index}})" class="gray">Xóa</button></td>
-    </tr>`;
-});
-  });
-}, 2000);
-</script></body></html>
-
+        let showId = swap16(s.nodeId);
+        table.innerHTML += `<tr>
+            <td>0x${showId.toString(16).toUpperCase().padStart(4,'0')}</td>
+            <td>${s.hour}:${s.minute}</td>
+            <td>${s.state?'BẬT':'TẮT'}</td>
+            <td><button onclick="send({cmd:'remove_schedule',index:${s.index}})" class="gray">Xóa</button></td>
+        </tr>`;
+    });
+}
+</script>
+</body>
+</html>
