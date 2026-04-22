@@ -15,14 +15,14 @@
         input, select{padding:8px; border:1px solid #ddd; border-radius:5px; margin:5px 0;}
         table{width:100%; border-collapse:collapse; margin-top:10px;}
         td, th{padding:10px; border-bottom:1px solid #eee; text-align:left;}
-        #status-indicator { font-weight: bold; margin-bottom: 10px; display: block; }
+        #status-indicator { font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="box">
-    <h3>Trạng thái kết nối: <span id="status-indicator" style="color: orange;">Đang kết nối...</span></h3>
-    <p>Điều khiển từ xa qua Adafruit IO</p>
+    <h3>Trạng thái: <span id="status-indicator" style="color: orange;">Đang kết nối...</span></h3>
+    <p>Tài khoản: <b>hungdt</b></p>
 </div>
 
 <div class="box">
@@ -43,7 +43,7 @@
     ID: <input id="sid" placeholder="0x05E8" style="width:70px"> 
     Thời gian: <input type="number" id="sh" value="18" style="width:45px"> : <input type="number" id="sm" value="30" style="width:45px">
     Lệnh: <select id="st"><option value="1">BẬT</option><option value="0">TẮT</option></select>
-    <button onclick="addS()">Thêm</button>
+    <button onclick="addS()">Thêm lịch</button>
     <table id="sTable"></table>
 </div>
 
@@ -53,43 +53,40 @@
 </div>
 
 <script>
-/* ================= CONFIG MQTT ADADA FRUIT ================= */
-// Thay YOUR_AIO_KEY bằng mã bạn lấy được từ biểu tượng chìa khóa vàng
+/* ================= CẤU HÌNH KẾT NỐI (ĐÃ SỬA) ================= */
 const AIO_USERNAME = "hungdt";
-const AIO_KEY = "YOUR_AIO_KEY"; 
+const AIO_KEY = "aio_fJoX98ut2WEAGAo2RC7R5ab7P5AU";
 const CMD_TOPIC = AIO_USERNAME + "/feeds/zigbee-cmd";
 const STATUS_TOPIC = AIO_USERNAME + "/feeds/zigbee-status";
 
+// Sử dụng cổng 443 và wss để chạy được trên Render (HTTPS)
 const client = mqtt.connect('wss://io.adafruit.com:443/mqtt', {
     username: AIO_USERNAME,
     password: AIO_KEY,
-    clientId: 'web_' + Math.random().toString(16).substr(2, 8)
+    clientId: 'Web_' + Math.random().toString(16).substr(2, 8)
 });
+
+const statusEl = document.getElementById('status-indicator');
 
 client.on('connect', () => {
-    document.getElementById('status-indicator').innerText = "Đã kết nối";
-    document.getElementById('status-indicator').style.color = "green";
-    client.subscribe(STATUS_TOPIC); // Đăng ký nhận trạng thái từ ESP32 gửi về
+    statusEl.innerText = "Đã kết nối Adafruit";
+    statusEl.style.color = "green";
+    client.subscribe(STATUS_TOPIC);
+    console.log("MQTT Connected");
 });
 
-client.on('error', () => {
-    document.getElementById('status-indicator').innerText = "Lỗi kết nối";
-    document.getElementById('status-indicator').style.color = "red";
+client.on('error', (err) => {
+    statusEl.innerText = "Lỗi kết nối!";
+    statusEl.style.color = "red";
+    console.error(err);
 });
 
-/* ================= LOGIC GIỮ NGUYÊN TỪ BẢN CŨ ================= */
-
-// Gửi dữ liệu qua MQTT thay vì fetch() nội bộ
-const send = (d) => {
-    client.publish(CMD_TOPIC, JSON.stringify(d));
-    console.log("Sent:", d);
+/* ================= LOGIC GỬI LỆNH ================= */
+const send = (data) => {
+    client.publish(CMD_TOPIC, JSON.stringify(data));
 };
 
-const cmd = (c) => send({cmd:c});
-
-function swap16(v){
-    return ((v & 0xFF) << 8) | (v >> 8);
-}
+const cmd = (c) => send({cmd: c});
 
 function createNet() {
     send({
@@ -103,35 +100,40 @@ function createNet() {
 
 function addS(){
     const rawVal = parseInt(document.getElementById('sid').value, 16);
+    // Logic swap byte giữ nguyên để khớp với ESP32
+    const swappedId = ((rawVal & 0xFF) << 8) | (rawVal >> 8);
     send({
-        cmd:'schedule',
-        nodeId: ((rawVal & 0xFF) << 8) | (rawVal >> 8),
+        cmd: 'schedule',
+        nodeId: swappedId,
         hour: parseInt(document.getElementById('sh').value),
         minute: parseInt(document.getElementById('sm').value),
         state: parseInt(document.getElementById('st').value)
     });
 }
 
-// Lắng nghe dữ liệu phản hồi từ ESP32 (thay cho hàm fetch status cũ)
+/* ================= NHẬN TRẠNG THÁI TỪ ESP32 ================= */
 client.on('message', (topic, message) => {
     if (topic === STATUS_TOPIC) {
-        const d = JSON.parse(message.toString());
-        updateUI(d);
+        try {
+            const data = JSON.parse(message.toString());
+            updateUI(data);
+        } catch (e) { console.error("JSON Error", e); }
     }
 });
 
 function updateUI(d) {
-    // Logic hiển thị thiết bị join
-    if(d.lastEvent == 'device_join' || d.lastEvent == 'led'){
+    // Hiển thị thiết bị mới
+    if(d.lastEvent === 'device_join' || d.lastEvent === 'led'){
         let rawId = d.lastNode;
-        let id = ((rawId & 0xFF) << 8) | (rawId >> 8);
+        // Đảo lại byte để hiển thị đúng ID người dùng nhập
+        let displayId = ((rawId & 0xFF) << 8) | (rawId >> 8);
 
-        if(!document.getElementById('d'+id)){
+        if(!document.getElementById('d' + displayId)){
             let div = document.createElement('div'); 
-            div.id = 'd'+id; 
-            div.className='box';
+            div.id = 'd' + displayId; 
+            div.className = 'box';
             div.style.borderLeft = "5px solid #28a745";
-            div.innerHTML = `<b>Thiết bị: 0x${id.toString(16).toUpperCase()}</b><br>
+            div.innerHTML = `<b>Thiết bị: 0x${displayId.toString(16).toUpperCase()}</b><br>
                              <button onclick="send({cmd:'led',nodeId:${rawId},state:1})">BẬT</button>
                              <button onclick="send({cmd:'led',nodeId:${rawId},state:0})" class="off">TẮT</button>
                              <button onclick="send({cmd:'delete',nodeId:${rawId}})" class="gray">Xóa</button>`;
@@ -139,20 +141,25 @@ function updateUI(d) {
         }
     }
     
-    if(d.lastEvent == 'delete'){ document.getElementById('d'+d.lastNode)?.remove(); }
+    if(d.lastEvent === 'delete'){ 
+        let displayId = ((d.lastNode & 0xFF) << 8) | (d.lastNode >> 8);
+        document.getElementById('d' + displayId)?.remove(); 
+    }
     
-    // Logic cập nhật bảng lịch
+    // Cập nhật bảng lịch
     let table = document.getElementById('sTable');
     table.innerHTML = '<tr><th>Node</th><th>Giờ</th><th>Lệnh</th><th></th></tr>';
-    d.schedules.forEach(s => {
-        let showId = swap16(s.nodeId);
-        table.innerHTML += `<tr>
-            <td>0x${showId.toString(16).toUpperCase().padStart(4,'0')}</td>
-            <td>${s.hour}:${s.minute}</td>
-            <td>${s.state?'BẬT':'TẮT'}</td>
-            <td><button onclick="send({cmd:'remove_schedule',index:${s.index}})" class="gray">Xóa</button></td>
-        </tr>`;
-    });
+    if(d.schedules) {
+        d.schedules.forEach(s => {
+            let showId = ((s.nodeId & 0xFF) << 8) | (s.nodeId >> 8);
+            table.innerHTML += `<tr>
+                <td>0x${showId.toString(16).toUpperCase().padStart(4,'0')}</td>
+                <td>${s.hour}:${s.minute.toString().padStart(2,'0')}</td>
+                <td>${s.state ? 'BẬT' : 'TẮT'}</td>
+                <td><button onclick="send({cmd:'remove_schedule',index:${s.index}})" class="gray">Xóa</button></td>
+            </tr>`;
+        });
+    }
 }
 </script>
 </body>
