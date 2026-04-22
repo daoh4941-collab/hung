@@ -59,14 +59,12 @@ const AIO_USERNAME = "hungdt";
 const AIO_KEY = "aio_fJoX98ut2WEAGAo2RC7R5ab7P5AU";
 const CMD_TOPIC = AIO_USERNAME + "/feeds/zigbee-cmd";
 const STATUS_TOPIC = AIO_USERNAME + "/feeds/zigbee-status";
-
-// Bắt buộc dùng wss:// và cổng 443 để chạy được trên Render (HTTPS)
+    
 const client = mqtt.connect('wss://io.adafruit.com:443/mqtt', {
-    username: AIO_USERNAME,
-    password: AIO_KEY,
+    username: "hungdt",
+    password: "aio_fJoX98ut2WEAGAo2RC7R5ab7P5AU", // Active Key của bạn
     clientId: 'WebClient_' + Math.random().toString(16).substr(2, 8)
 });
-
 const statusEl = document.getElementById('status-indicator');
 
 client.on('connect', () => {
