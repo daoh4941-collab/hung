@@ -17,7 +17,6 @@
         table{width:100%; border-collapse:collapse; margin-top:10px;}
         td, th{padding:10px; border-bottom:1px solid #eee; text-align:left;}
         #status-indicator { font-weight: bold; }
-        .device-card { border-left: 5px solid #28a745; }
     </style>
 </head>
 <body>
@@ -43,7 +42,7 @@
 <div class="box">
     <h3>Đặt lịch hẹn giờ (Tối đa 10)</h3>
     ID thiết bị: <input id="sid" placeholder="0x05E8" style="width:80px"> 
-    Thời gian: <input type="number" id="sh" value="18" style="width:45px" min="0" max="23"> : <input type="number" id="sm" value="30" style="width:45px" min="0" max="59">
+    Thời gian: <input type="number" id="sh" value="18" style="width:45px"> : <input type="number" id="sm" value="30" style="width:45px">
     Lệnh: <select id="st"><option value="1">BẬT</option><option value="0">TẮT</option></select>
     <button onclick="addS()">Thêm vào lịch</button>
     <table id="sTable"></table>
@@ -55,13 +54,13 @@
 </div>
 
 <script>
-/* ================= CẤU HÌNH KẾT NỐI (GIỮ NGUYÊN THÔNG TIN TÀI KHOẢN) ================= */
+/* ================= CẤU HÌNH MQTT (ĐÃ SỬA ĐỂ CHẠY TRÊN RENDER) ================= */
 const AIO_USERNAME = "hungdt";
 const AIO_KEY = "aio_fJoX98ut2WEAGAo2RC7R5ab7P5AU";
 const CMD_TOPIC = AIO_USERNAME + "/feeds/zigbee-cmd";
 const STATUS_TOPIC = AIO_USERNAME + "/feeds/zigbee-status";
 
-// SỬA LỖI KẾT NỐI: Sử dụng cổng 443 và giao thức wss để tương thích với Render (HTTPS)
+// Bắt buộc dùng wss:// và cổng 443 cho trình duyệt bảo mật
 const client = mqtt.connect('wss://io.adafruit.com:443/mqtt', {
     username: AIO_USERNAME,
     password: AIO_KEY,
@@ -71,22 +70,19 @@ const client = mqtt.connect('wss://io.adafruit.com:443/mqtt', {
 const statusEl = document.getElementById('status-indicator');
 
 client.on('connect', () => {
-    statusEl.innerText = "Đã kết nối Adafruit";
+    statusEl.innerText = "Đã kết nối";
     statusEl.style.color = "green";
     client.subscribe(STATUS_TOPIC);
-    console.log("MQTT Connected Successfully via WSS");
+    console.log("MQTT Connected Successfully");
 });
 
 client.on('error', (err) => {
     statusEl.innerText = "Lỗi kết nối!";
     statusEl.style.color = "red";
-    console.error("MQTT Connection Error:", err);
 });
 
-/* ================= GIỮ NGUYÊN LOGIC GỬI LỆNH ================= */
-const send = (data) => {
-    client.publish(CMD_TOPIC, JSON.stringify(data));
-};
+/* ================= GIỮ NGUYÊN LOGIC XỬ LÝ (ĐẢO BYTE) ================= */
+const send = (data) => client.publish(CMD_TOPIC, JSON.stringify(data));
 
 const cmd = (c) => send({cmd: c});
 
@@ -102,7 +98,7 @@ function createNet() {
 
 function addS(){
     const rawVal = parseInt(document.getElementById('sid').value, 16);
-    // GIỮ NGUYÊN LOGIC ĐẢO BYTE: Đồng bộ với xử lý bộ nhớ trên ESP32
+    // LOGIC ĐẢO BYTE (Endianness): Giữ nguyên để khớp với ESP32
     const swappedId = ((rawVal & 0xFF) << 8) | (rawVal >> 8); 
     send({
         cmd: 'schedule',
@@ -113,51 +109,50 @@ function addS(){
     });
 }
 
-/* ================= GIỮ NGUYÊN LOGIC NHẬN VÀ HIỂN THỊ DỮ LIỆU ================= */
+/* ================= NHẬN TRẠNG THÁI TỪ THIẾT BỊ ================= */
 client.on('message', (topic, message) => {
     if (topic === STATUS_TOPIC) {
         try {
             const data = JSON.parse(message.toString());
             updateUI(data);
-        } catch (e) { console.error("Dữ liệu JSON không hợp lệ", e); }
+        } catch (e) { console.error("JSON Error", e); }
     }
 });
 
 function updateUI(d) {
-    // Xử lý hiển thị thiết bị Join hoặc điều khiển LED
     if(d.lastEvent === 'device_join' || d.lastEvent === 'led'){
         let rawId = d.lastNode;
-        // Đảo lại byte để hiển thị đúng ID mà người dùng đã nhập ban đầu
+        // ĐẢO BYTE KHI HIỂN THỊ: Giữ nguyên để người dùng thấy ID đúng
         let displayId = ((rawId & 0xFF) << 8) | (rawId >> 8);
 
         if(!document.getElementById('d' + displayId)){
             let div = document.createElement('div'); 
             div.id = 'd' + displayId; 
-            div.className = 'box device-card';
+            div.className = 'box';
+            div.style.borderLeft = "5px solid #28a745";
             div.innerHTML = `<b>Thiết bị: 0x${displayId.toString(16).toUpperCase().padStart(4,'0')}</b><br>
                              <button onclick="send({cmd:'led',nodeId:${rawId},state:1})">BẬT</button>
                              <button onclick="send({cmd:'led',nodeId:${rawId},state:0})" class="off">TẮT</button>
-                             <button onclick="send({cmd:'delete',nodeId:${rawId}})" class="gray">Xóa khỏi mạng</button>`;
+                             <button onclick="send({cmd:'delete',nodeId:${rawId}})" class="gray">Xóa</button>`;
             document.getElementById('devs').appendChild(div);
         }
     }
     
-    // Xử lý xóa thiết bị khỏi danh sách hiển thị
     if(d.lastEvent === 'delete'){ 
         let displayId = ((d.lastNode & 0xFF) << 8) | (d.lastNode >> 8);
         document.getElementById('d' + displayId)?.remove(); 
     }
     
-    // Cập nhật bảng danh sách lịch hẹn giờ từ ESP32 gửi lên
+    // Cập nhật bảng lịch
     let table = document.getElementById('sTable');
-    table.innerHTML = '<tr><th>Node ID</th><th>Thời gian</th><th>Trạng thái</th><th>Thao tác</th></tr>';
+    table.innerHTML = '<tr><th>Node</th><th>Giờ</th><th>Trạng thái</th><th>Thao tác</th></tr>';
     if(d.schedules) {
         d.schedules.forEach(s => {
             let showId = ((s.nodeId & 0xFF) << 8) | (s.nodeId >> 8);
             table.innerHTML += `<tr>
                 <td>0x${showId.toString(16).toUpperCase().padStart(4,'0')}</td>
                 <td>${s.hour.toString().padStart(2,'0')}:${s.minute.toString().padStart(2,'0')}</td>
-                <td>${s.state ? '<span style="color:green">BẬT</span>' : '<span style="color:red">TẮT</span>'}</td>
+                <td>${s.state ? 'BẬT' : 'TẮT'}</td>
                 <td><button onclick="send({cmd:'remove_schedule',index:${s.index}})" class="gray">Xóa lịch</button></td>
             </tr>`;
         });
